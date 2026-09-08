@@ -1,0 +1,26 @@
+[package]
+name = "fm-core"
+version = "0.1.0"
+description = "Find My offline-finding protocol: keys, advertisements, key schedules, provisioning blobs, report decryption"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = ["std", "crypto"]
+std = ["alloc"]
+alloc = []
+# Key generation and report decryption. Beacon firmware only needs the
+# advertisement/blob/schedule code and can build with `default-features = false`.
+crypto = ["alloc", "dep:p224", "dep:aes-gcm", "dep:sha2", "dep:rand_core"]
+# Lets tests and the server's test suite produce reports the way a finder device would.
+finder-sim = ["crypto"]
+
+[dependencies]
+p224 = { workspace = true, optional = true, features = ["arithmetic", "ecdh"] }
+aes-gcm = { workspace = true, optional = true, features = ["aes", "alloc"] }
+sha2 = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
+
+[dev-dependencies]
+rand_core = { workspace = true, features = ["getrandom"] }

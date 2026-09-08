@@ -1,0 +1,11 @@
+/target
+node_modules/
+dist/
+.env
+*.db
+*.db-journal
+
+# Apple binaries downloaded at runtime by fm-anisette; never commit them.
+/data/
+*.apk
+lib*.so

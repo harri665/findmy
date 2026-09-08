@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/fm-core"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/harri665/findmy"
+authors = ["Harrison Martin"]
+
+[workspace.dependencies]
+fm-core = { path = "crates/fm-core", default-features = false }
+
+# RustCrypto: pinned to the stable 0.13 elliptic-curve family (p224 0.14 is still RC).
+p224 = { version = "0.13", default-features = false }
+aes-gcm = { version = "0.10", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+rand_core = { version = "0.6", default-features = false }
