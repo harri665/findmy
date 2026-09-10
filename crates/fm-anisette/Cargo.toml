@@ -1,0 +1,11 @@
+[package]
+name = "fm-anisette"
+version = "0.1.0"
+description = "Placeholder: not implemented, see README.md"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
