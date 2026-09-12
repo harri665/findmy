@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/fm-anisette","crates/fm-core"]
+members = ["crates/fm-anisette", "crates/fm-cli", "crates/fm-core"]
 
 [workspace.package]
 edition = "2021"
@@ -9,6 +9,7 @@ repository = "https://github.com/harri665/findmy"
 authors = ["Harrison Martin"]
 
 [workspace.dependencies]
+fm-core = { path = "crates/fm-core", default-features = false }
 
 # RustCrypto: pinned to the stable 0.13 elliptic-curve family (p224 0.14 is still RC).
 p224 = { version = "0.13", default-features = false }

@@ -5,7 +5,11 @@ dist/
 *.db
 *.db-journal
 
-# Apple binaries downloaded at runtime by fm-anisette; never commit them.
+# Never commit Apple binaries.
 /data/
 *.apk
 lib*.so
+
+# Device key files from `fm keygen` hold private keys.
+*.keys.json
+*.fmkt
