@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/fm-anisette", "crates/fm-cli", "crates/fm-core"]
+members = ["crates/fm-anisette", "crates/fm-cli", "crates/fm-core", "crates/fm-hci"]
+# Firmware targets RISC-V and is built on its own.
+exclude = ["beacons/esp32"]
 
 [workspace.package]
 edition = "2021"
