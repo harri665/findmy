@@ -1,0 +1,8 @@
+# findmy ESP32-C3 partition table (4 MB flash).
+# fmkeys holds the FMKT provisioning blob (fm-core::blob). Its offset must
+# match KEYS_OFFSET in src/main.rs. Re-flashing the app does not touch it.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+phy_init, data, phy,     0xf000,   0x1000
+factory,  app,  factory, 0x10000,  0x200000
+fmkeys,   data, undefined, 0x210000, 0x10000

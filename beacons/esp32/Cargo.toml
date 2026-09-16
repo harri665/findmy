@@ -1,0 +1,38 @@
+[package]
+edition      = "2024"
+name         = "fm-beacon-esp32"
+rust-version = "1.95"
+version      = "0.1.0"
+description  = "findmy beacon firmware for ESP32-C3: broadcasts Find My advertisements from a provisioned key blob"
+license      = "MIT"
+
+[[bin]]
+name = "fm-beacon-esp32"
+path = "./src/main.rs"
+
+[dependencies]
+fm-core = { path = "../../crates/fm-core", default-features = false }
+fm-hci = { path = "../../crates/fm-hci" }
+
+esp-hal = { version = "~1.2.2", features = ["esp32c3", "log-04", "unstable"] }
+esp-rtos = { version = "0.4.0", features = ["embassy", "esp-alloc", "esp-radio", "esp32c3", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32c3", "log-04"] }
+esp-alloc = { version = "0.11.0", features = ["esp32c3"] }
+esp-backtrace = { version = "0.20.0", features = ["esp32c3", "panic-handler", "println"] }
+esp-println = { version = "0.18.0", features = ["esp32c3", "log-04"] }
+esp-radio = { version = "1.0.0-beta.1", features = ["ble", "esp-alloc", "esp32c3", "log-04", "unstable"] }
+esp-storage = { version = "0.10.0", features = ["esp32c3"] }
+
+embassy-executor = { version = "0.10.0", features = ["log"] }
+embassy-time = { version = "0.5.0", features = ["log"] }
+log = "0.4.27"
+
+[profile.dev]
+# The default debug profile is too slow and too big for the chip.
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug         = 2
+lto           = "fat"
+opt-level     = "s"
