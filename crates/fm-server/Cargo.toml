@@ -1,0 +1,30 @@
+[package]
+name = "fm-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fm-core = { workspace = true, features = ["std", "crypto"] }
+rand_core = { workspace = true, features = ["getrandom"] }
+sha2 = { workspace = true, features = ["std"] }
+anyhow = "1.0.104"
+axum = "0.8.9"
+base64 = "0.23.1"
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tower-http = { version = "0.7.1", features = ["fs", "trace", "cors"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+fm-core = { workspace = true, features = ["std", "crypto", "finder-sim"] }
+p224 = { workspace = true, features = ["arithmetic"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
