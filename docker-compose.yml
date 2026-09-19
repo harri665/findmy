@@ -1,0 +1,51 @@
+# findmy: dashboard (nginx + React) in front of fm-server.
+# Layout follows harrisonwebdefault: `client` serves the site and proxies
+# /api/ to `server:3001`. Only the client's port is published.
+#
+#   FM_ADMIN_PASSWORD=... docker compose up -d --build
+#
+# Optional: FM_MASTER_KEY (base64, 32 bytes) keeps the key that encrypts
+# private keys out of the data volume. FINDMY_PORT changes the web port.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: deploy/server.Dockerfile
+    container_name: findmy-server
+    environment:
+      - FM_ADMIN_PASSWORD=${FM_ADMIN_PASSWORD:?set FM_ADMIN_PASSWORD}
+      - FM_MASTER_KEY=${FM_MASTER_KEY:-}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - findmy-data:/data
+    networks:
+      - findmy-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "fm-server", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: findmy-client
+    ports:
+      - "${FINDMY_PORT:-8080}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - findmy-network
+    restart: unless-stopped
+
+volumes:
+  findmy-data:
+
+networks:
+  findmy-network:
+    driver: bridge

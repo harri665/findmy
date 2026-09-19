@@ -33,9 +33,10 @@ impl Config {
             Err(_) => bail!("FM_ADMIN_PASSWORD is not set; the dashboard needs a password"),
         };
 
-        let master_key = match std::env::var("FM_MASTER_KEY") {
-            Ok(v) => decode_key(&v).context("FM_MASTER_KEY")?,
-            Err(_) => load_or_create_key(&data_dir.join("master.key"))?,
+        // Empty counts as unset, so compose files can pass `${FM_MASTER_KEY:-}`.
+        let master_key = match std::env::var("FM_MASTER_KEY").ok().filter(|v| !v.trim().is_empty()) {
+            Some(v) => decode_key(&v).context("FM_MASTER_KEY")?,
+            None => load_or_create_key(&data_dir.join("master.key"))?,
         };
 
         Ok(Config { bind, data_dir, admin_password, master_key })

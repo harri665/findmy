@@ -15,8 +15,30 @@ use tracing_subscriber::EnvFilter;
 use crate::api::AppState;
 use crate::config::Config;
 
+fn main() -> Result<()> {
+    // `fm-server healthcheck`: for the container health check, which has no
+    // curl/wget in the slim image.
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        std::process::exit(if healthcheck() { 0 } else { 1 });
+    }
+    serve()
+}
+
+fn healthcheck() -> bool {
+    use std::io::{Read, Write};
+    let bind = std::env::var("FM_BIND").unwrap_or_else(|_| "0.0.0.0:3001".into());
+    let port = bind.rsplit(':').next().unwrap_or("3001");
+    let Ok(mut s) = std::net::TcpStream::connect(format!("127.0.0.1:{port}")) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+    let req = "GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let mut resp = String::new();
+    s.write_all(req.as_bytes()).is_ok() && s.read_to_string(&mut resp).is_ok() && resp.starts_with("HTTP/1.1 200")
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn serve() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
