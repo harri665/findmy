@@ -50,3 +50,19 @@ fn report_decryption() {
     assert_eq!(loc.accuracy, 35);
     assert_eq!(loc.status, 0x40);
 }
+
+/// Derived mode, seed = bytes 0..28. Produced by tools/vectors/gen_vector.py.
+#[test]
+fn derived_keys() {
+    let seed: [u8; 28] = core::array::from_fn(|i| i as u8);
+    let cases = [
+        (0u32, "33e578ee42fc076e1adf5e76e16be7334ea3ad599e461deb2ec40057", "c04e20f88cedf49ded9c931321c8465c9a9de782c7fafff8f431230b"),
+        (1, "83f58d22a7a0bfd6dcb4ca5f940fd02093a705a8cb6164b23d3d9957", "674f28b0c4353b0e2100afce56818ecad2faa212aa8abb977b836a16"),
+        (1000, "f8a4beb0745f141da09969356a673fc5a9f08d069d4cd7ecc7c0591e", "d3822c033b0d672f88f0d93861223be41674c181622da478107bf758"),
+    ];
+    for (index, priv_hex, adv_hex) in cases {
+        let kp = fm_core::derive::derive_keypair(&seed, index);
+        assert_eq!(kp.private_bytes(), hex::<28>(priv_hex), "private key {index}");
+        assert_eq!(kp.adv_key(), hex::<28>(adv_hex), "adv key {index}");
+    }
+}

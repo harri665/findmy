@@ -15,10 +15,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
     pub name: String,
-    /// "static" or "pool".
+    /// "static", "pool" or "derived".
     pub mode: String,
     pub interval_s: u32,
     pub status: u8,
+    /// Derived mode only: the seed (hex) the beacon derives its keys from.
+    /// A secret; `keys` holds the derived window so the rest of the CLI works unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<String>,
     pub keys: Vec<KeyEntry>,
 }
 
@@ -65,13 +69,21 @@ impl KeyFile {
         parse_mode(&self.mode)
     }
 
+    /// The seed of a derived key file.
+    pub fn seed_bytes(&self) -> Result<AdvKey> {
+        let seed = self.seed.as_deref().context("derived key file has no seed")?;
+        unhex(seed)?.try_into().map_err(|_| anyhow::anyhow!("seed must be {KEY_LEN} bytes"))
+    }
+
     pub fn load(path: &str) -> Result<Self> {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
         let kf: KeyFile = serde_json::from_str(&text).with_context(|| format!("parsing {path}"))?;
         if kf.keys.is_empty() {
             bail!("{path} has no keys");
         }
-        kf.key_mode()?;
+        if kf.key_mode()? == KeyMode::Derived {
+            kf.seed_bytes()?;
+        }
         Ok(kf)
     }
 
@@ -90,7 +102,8 @@ pub fn parse_mode(s: &str) -> Result<KeyMode> {
     match s {
         "static" => Ok(KeyMode::Static),
         "pool" => Ok(KeyMode::Pool),
-        other => bail!("unknown key mode {other:?} (expected \"static\" or \"pool\")"),
+        "derived" => Ok(KeyMode::Derived),
+        other => bail!("unknown key mode {other:?} (expected \"static\", \"pool\" or \"derived\")"),
     }
 }
 

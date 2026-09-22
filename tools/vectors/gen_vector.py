@@ -44,3 +44,17 @@ print("hashed    ", hashlib.sha256(adv_key).hexdigest())
 print("address   ", bytes(addr).hex())
 print("adv_data  ", adv.hex())
 print("report    ", report.hex())
+
+# --- Derived key mode (docs/protocol.md, "Derived keys") -------------------
+def derive(seed, index):
+    for ctr in range(256):
+        d = hashlib.sha256(b"findmy/derive/v1" + seed + struct.pack(">I", index) + bytes([ctr])).digest()[:28]
+        v = int.from_bytes(d, "big")
+        if 0 < v < N:
+            return ec.derive_private_key(v, ec.SECP224R1())
+
+seed = bytes(range(28))
+for i in (0, 1, 1000):
+    k = derive(seed, i)
+    print(f"derived[{i}] priv", k.private_numbers().private_value.to_bytes(28, "big").hex())
+    print(f"derived[{i}] adv ", k.public_key().public_numbers().x.to_bytes(28, "big").hex())

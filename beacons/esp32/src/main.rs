@@ -37,7 +37,7 @@ use fm_core::advert;
 use fm_core::blob::{Blob, BlobError, HEADER_LEN};
 use fm_core::schedule::{self, KeyMode};
 use fm_hci::{self as hci, Command};
-use log::{error, info, warn};
+use log::{error, info};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -77,10 +77,6 @@ async fn main(_spawner: Spawner) -> ! {
         "{} key(s), mode {:?}, interval {} s, status 0x{:02x}",
         count, blob.mode, blob.interval_s, blob.status
     );
-    if blob.mode == KeyMode::Derived {
-        warn!("derived key mode is not implemented; using key 0 only");
-    }
-
     // Start at a random key so a reboot doesn't always replay key 0, which
     // would let someone link the device across reboots.
     let start = (Rng::new().random() % count as u32) as u16;
@@ -94,7 +90,7 @@ async fn main(_spawner: Spawner) -> ! {
         let index = schedule::key_index(blob.mode, count, blob.interval_s, start, uptime);
 
         if radio.current != Some(index) {
-            let adv = advert::encode(&blob.key(index), blob.status);
+            let adv = advert::encode(&blob.key(index).expect("stored keys only"), blob.status);
             match radio.advertise(index, &adv).await {
                 Ok(()) => info!("advertising key #{} as {}", index, Mac(&adv.address)),
                 Err(e) => {
@@ -121,7 +117,11 @@ fn read_blob(flash: &mut FlashStorage<'_>) -> Result<Vec<u8>, BlobError> {
     }
     let mut bytes = vec![0u8; len];
     flash.read(KEYS_OFFSET, &mut bytes).map_err(|_| BlobError::TooShort)?;
-    Blob::parse(&bytes)?;
+    // Derived blobs hold a seed and need P-224 on the device; this firmware
+    // is built without fm-core's crypto feature, so it only takes stored keys.
+    if Blob::parse(&bytes)?.mode == KeyMode::Derived {
+        return Err(BlobError::UnknownKeyMode(KeyMode::Derived as u8));
+    }
     Ok(bytes)
 }
 

@@ -15,10 +15,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use fm_core::derive::derive_keypair;
 use fm_core::keys::KeyPair;
 use fm_core::schedule::KeyMode;
 use fm_core::{blob, report, KEY_LEN};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -160,7 +161,7 @@ struct CreateDevice {
     #[serde(default = "default_icon")]
     icon: String,
     platform: String,
-    /// "static" or "pool".
+    /// "static", "pool" or "derived".
     key_mode: String,
     /// Keys in the pool (ignored for static).
     #[serde(default = "default_count")]
@@ -193,8 +194,14 @@ async fn create_device(State(state): State<Shared>, Json(body): Json<CreateDevic
     let count = if mode == KeyMode::Static { 1 } else { body.count };
     validate_common(&body.name, &body.platform, count, mode, body.interval_s)?;
 
-    let keys: Vec<NewKey> =
-        (0..count).map(|_| new_key(&state.sealer, &KeyPair::generate(&mut OsRng))).collect();
+    let (seed_enc, keys): (Option<Vec<u8>>, Vec<NewKey>) = if mode == KeyMode::Derived {
+        let mut seed = [0u8; KEY_LEN];
+        OsRng.fill_bytes(&mut seed);
+        let keys = (0..count as u32).map(|i| new_key(&state.sealer, &derive_keypair(&seed, i))).collect();
+        (Some(state.sealer.seal(&seed)), keys)
+    } else {
+        (None, (0..count).map(|_| new_key(&state.sealer, &KeyPair::generate(&mut OsRng))).collect())
+    };
     let agent_token = crypto::random_token();
     let new = NewDevice {
         name: body.name.trim(),
@@ -204,6 +211,7 @@ async fn create_device(State(state): State<Shared>, Json(body): Json<CreateDevic
         interval_s: body.interval_s,
         status: body.status,
         agent_token_hash: &crypto::sha256_hex(agent_token.as_bytes()),
+        seed_enc: seed_enc.as_deref(),
     };
     let mut conn = lock(&state);
     let id = db::insert_device(&mut conn, &new, &keys)?;
@@ -223,6 +231,9 @@ struct ImportDevice {
     interval_s: u32,
     #[serde(default)]
     status: u8,
+    /// Derived mode: the seed (hex) the keys come from.
+    #[serde(default)]
+    seed: Option<String>,
     keys: Vec<ImportKey>,
 }
 
@@ -248,6 +259,22 @@ async fn import_device(State(state): State<Shared>, Json(body): Json<ImportDevic
         let kp = KeyPair::from_private_bytes(&bytes).map_err(|e| ApiError::bad_request(format!("key {i}: {e}")))?;
         keys.push(new_key(&state.sealer, &kp));
     }
+    let seed_enc = if mode == KeyMode::Derived {
+        let seed: [u8; KEY_LEN] = body
+            .seed
+            .as_deref()
+            .and_then(unhex)
+            .and_then(|b| b.try_into().ok())
+            .ok_or_else(|| ApiError::bad_request(format!("derived mode needs a {KEY_LEN}-byte hex seed")))?;
+        for (i, k) in keys.iter().enumerate() {
+            if derive_keypair(&seed, i as u32).adv_key() != k.adv_key {
+                return Err(ApiError::bad_request(format!("key {i} does not derive from the seed")));
+            }
+        }
+        Some(state.sealer.seal(&seed))
+    } else {
+        None
+    };
 
     let agent_token = crypto::random_token();
     let new = NewDevice {
@@ -258,6 +285,7 @@ async fn import_device(State(state): State<Shared>, Json(body): Json<ImportDevic
         interval_s: body.interval_s,
         status: body.status,
         agent_token_hash: &crypto::sha256_hex(agent_token.as_bytes()),
+        seed_enc: seed_enc.as_deref(),
     };
     let mut conn = lock(&state);
     let id = db::insert_device(&mut conn, &new, &keys).map_err(|e| {
@@ -309,7 +337,7 @@ async fn rotate_agent_token(State(state): State<Shared>, Path(id): Path<i64>) ->
 }
 
 async fn device_blob(State(state): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    let bytes = build_blob(&lock(&state), id)?;
+    let bytes = build_blob(&state.sealer, &lock(&state), id)?;
     let name = format!("device-{id}.fmkt");
     Ok(blob_response(bytes, &name))
 }
@@ -319,13 +347,23 @@ async fn agent_blob(State(state): State<Shared>, headers: HeaderMap) -> ApiResul
     let token = auth_token(&headers, "Device").ok_or_else(ApiError::unauthorized)?;
     let conn = lock(&state);
     let id = db::device_by_agent_token(&conn, &crypto::sha256_hex(token.as_bytes()))?.ok_or_else(ApiError::unauthorized)?;
-    Ok(blob_response(build_blob(&conn, id)?, "keys.fmkt"))
+    Ok(blob_response(build_blob(&state.sealer, &conn, id)?, "keys.fmkt"))
 }
 
-fn build_blob(conn: &Connection, id: i64) -> ApiResult<Vec<u8>> {
+fn build_blob(sealer: &Sealer, conn: &Connection, id: i64) -> ApiResult<Vec<u8>> {
     let (mode, interval_s, status) = db::blob_params(conn, id)?.ok_or_else(ApiError::not_found)?;
     let keys = db::adv_keys(conn, id)?;
-    blob::build(parse_mode(&mode)?, interval_s, status, &keys).map_err(|e| anyhow::anyhow!("building blob: {e}").into())
+    let built = match parse_mode(&mode)? {
+        KeyMode::Derived => {
+            let seed = db::seed_enc(conn, id)?
+                .and_then(|enc| sealer.open(&enc))
+                .and_then(|b| <[u8; KEY_LEN]>::try_from(b).ok())
+                .ok_or_else(|| anyhow::anyhow!("device {id} has no readable seed"))?;
+            blob::build_derived(interval_s, status, &seed, keys.len() as u16)
+        }
+        mode => blob::build(mode, interval_s, status, &keys),
+    };
+    built.map_err(|e| anyhow::anyhow!("building blob: {e}").into())
 }
 
 fn blob_response(bytes: Vec<u8>, filename: &str) -> Response {
@@ -469,7 +507,8 @@ fn parse_mode(s: &str) -> ApiResult<KeyMode> {
     match s {
         "static" => Ok(KeyMode::Static),
         "pool" => Ok(KeyMode::Pool),
-        _ => Err(ApiError::bad_request("key_mode must be \"static\" or \"pool\"")),
+        "derived" => Ok(KeyMode::Derived),
+        _ => Err(ApiError::bad_request("key_mode must be \"static\", \"pool\" or \"derived\"")),
     }
 }
 
@@ -489,8 +528,11 @@ fn validate_common(name: &str, platform: &str, count: u16, mode: KeyMode, interv
     if count == 0 || count > blob::MAX_KEYS {
         return Err(ApiError::bad_request(format!("key count must be 1..={}", blob::MAX_KEYS)));
     }
-    if mode == KeyMode::Pool && interval_s < 60 {
-        return Err(ApiError::bad_request("interval_s must be at least 60 for pool mode"));
+    if mode == KeyMode::Derived && platform == "esp32" {
+        return Err(ApiError::bad_request("the esp32 beacon cannot derive keys on-device; use pool mode"));
+    }
+    if mode != KeyMode::Static && interval_s < 60 {
+        return Err(ApiError::bad_request("interval_s must be at least 60 for pool and derived mode"));
     }
     Ok(())
 }

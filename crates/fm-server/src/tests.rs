@@ -129,6 +129,7 @@ async fn rejects_bad_device_requests() {
         json!({ "name": "", "platform": "esp32", "key_mode": "pool" }),
         json!({ "name": "x", "platform": "toaster", "key_mode": "pool" }),
         json!({ "name": "x", "platform": "esp32", "key_mode": "derived" }),
+        json!({ "name": "x", "platform": "linux", "key_mode": "bogus" }),
         json!({ "name": "x", "platform": "esp32", "key_mode": "pool", "count": 0 }),
         json!({ "name": "x", "platform": "esp32", "key_mode": "pool", "count": 5000 }),
         json!({ "name": "x", "platform": "esp32", "key_mode": "pool", "interval_s": 10 }),
@@ -228,4 +229,45 @@ async fn settings_round_trip_and_validation() {
     for bad in [json!({ "anisette_url": "ftp://x" }), json!({ "fetch_interval_min": 1 })] {
         assert_eq!(call(&app, Method::PUT, "/api/settings", Some(&auth), Some(bad)).await.0, StatusCode::BAD_REQUEST);
     }
+}
+
+#[tokio::test]
+async fn derived_device_blob_carries_seed_not_keys() {
+    let app = app();
+    let auth = login(&app).await;
+    let (s, b) = call(
+        &app,
+        Method::POST,
+        "/api/devices",
+        Some(&auth),
+        Some(json!({ "name": "Tag", "platform": "linux", "key_mode": "derived", "count": 12, "interval_s": 900 })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{}", String::from_utf8_lossy(&b));
+    let id = json_of(&b)["device"]["id"].as_i64().unwrap();
+
+    let (_, bytes) = call(&app, Method::GET, &format!("/api/devices/{id}/blob"), Some(&auth), None).await;
+    let blob = Blob::parse(&bytes).unwrap();
+    assert_eq!(blob.mode, fm_core::schedule::KeyMode::Derived);
+    assert_eq!(blob.key_count(), 12);
+    assert_eq!(bytes.len(), 14 + 28 + 4);
+
+    // Every key the beacon derives is one the server holds a private key for.
+    let (_, h) = call(&app, Method::GET, "/api/keys/hashed", Some(&auth), None).await;
+    let known: Vec<String> = serde_json::from_slice(&h).unwrap();
+    for i in 0..12 {
+        let hashed = B64.encode(fm_core::keys::hashed_adv_key(&blob.adv_key(i)));
+        assert!(known.contains(&hashed), "derived key {i} unknown to server");
+    }
+
+    // Import: a seed that doesn't produce the keys is refused.
+    let seed = blob.seed().unwrap();
+    let key = fm_core::derive::derive_keypair(&seed, 0);
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let import = |seed: &[u8]| {
+        json!({ "name": "Imp", "mode": "derived", "interval_s": 900, "seed": hex(seed),
+                "keys": [{ "private": hex(&key.private_bytes()) }] })
+    };
+    let (s, _) = call(&app, Method::POST, "/api/devices/import", Some(&auth), Some(import(&[1u8; 28]))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }

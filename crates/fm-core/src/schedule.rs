@@ -12,7 +12,8 @@ pub enum KeyMode {
     Static = 0,
     /// A pool of keys, switched every `interval_s` seconds and wrapping around.
     Pool = 1,
-    /// Reserved: AirTag-style on-device key derivation. Not implemented yet.
+    /// Keys derived from one seed (see `derive`), switched every `interval_s`
+    /// seconds and wrapping at the blob's window size. The beacon needs crypto support.
     Derived = 2,
 }
 
@@ -39,8 +40,8 @@ pub fn key_index(mode: KeyMode, key_count: u16, interval_s: u32, start_index: u1
         return 0;
     }
     match mode {
-        KeyMode::Static | KeyMode::Derived => 0,
-        KeyMode::Pool => {
+        KeyMode::Static => 0,
+        KeyMode::Pool | KeyMode::Derived => {
             let interval = interval_s.max(1) as u64;
             let steps = uptime_s / interval;
             ((start_index as u64 + steps) % key_count as u64) as u16
@@ -52,7 +53,7 @@ pub fn key_index(mode: KeyMode, key_count: u16, interval_s: u32, start_index: u1
 /// `None` means the key never changes.
 pub fn secs_until_next(mode: KeyMode, key_count: u16, interval_s: u32, uptime_s: u64) -> Option<u64> {
     match mode {
-        KeyMode::Pool if key_count > 1 => {
+        KeyMode::Pool | KeyMode::Derived if key_count > 1 => {
             let interval = interval_s.max(1) as u64;
             Some(interval - uptime_s % interval)
         }
@@ -81,6 +82,17 @@ mod tests {
         assert_eq!(idx(900 * 4), 0);
         assert_eq!(key_index(KeyMode::Pool, 4, 900, 3, 900), 0, "resumes from start_index");
         assert_eq!(secs_until_next(KeyMode::Pool, 4, 900, 100), Some(800));
+    }
+
+    #[test]
+    fn derived_rotates_like_pool() {
+        for t in [0, 899, 900, 2700, 3600] {
+            assert_eq!(
+                key_index(KeyMode::Derived, 4, 900, 0, t),
+                key_index(KeyMode::Pool, 4, 900, 0, t)
+            );
+        }
+        assert_eq!(secs_until_next(KeyMode::Derived, 4, 900, 100), Some(800));
     }
 
     #[test]

@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS devices (
     interval_s       INTEGER NOT NULL,
     status           INTEGER NOT NULL DEFAULT 0,
     agent_token_hash TEXT    UNIQUE,
-    created          INTEGER NOT NULL
+    created          INTEGER NOT NULL,
+    seed_enc         BLOB
 );
 CREATE TABLE IF NOT EXISTS keys (
     device_id   INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
@@ -65,6 +66,13 @@ pub fn open_in_memory() -> Result<Connection> {
 fn init(conn: Connection) -> Result<Connection> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    // Databases created before derived mode lack the seed column.
+    let has_seed = conn
+        .prepare("SELECT 1 FROM pragma_table_info('devices') WHERE name = 'seed_enc'")?
+        .exists([])?;
+    if !has_seed {
+        conn.execute("ALTER TABLE devices ADD COLUMN seed_enc BLOB", [])?;
+    }
     Ok(conn)
 }
 
@@ -85,6 +93,8 @@ pub struct NewDevice<'a> {
     pub interval_s: u32,
     pub status: u8,
     pub agent_token_hash: &'a str,
+    /// Derived mode: the sealed seed.
+    pub seed_enc: Option<&'a [u8]>,
 }
 
 pub struct NewKey {
@@ -123,9 +133,9 @@ pub struct Device {
 pub fn insert_device(conn: &mut Connection, d: &NewDevice<'_>, keys: &[NewKey]) -> Result<i64> {
     let tx = conn.transaction()?;
     tx.execute(
-        "INSERT INTO devices (name, icon, platform, key_mode, interval_s, status, agent_token_hash, created)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![d.name, d.icon, d.platform, d.key_mode, d.interval_s, d.status, d.agent_token_hash, now()],
+        "INSERT INTO devices (name, icon, platform, key_mode, interval_s, status, agent_token_hash, created, seed_enc)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![d.name, d.icon, d.platform, d.key_mode, d.interval_s, d.status, d.agent_token_hash, now(), d.seed_enc],
     )?;
     let id = tx.last_insert_rowid();
     {
@@ -218,6 +228,14 @@ pub fn blob_params(conn: &Connection, device_id: i64) -> Result<Option<(String, 
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })
         .optional()?)
+}
+
+/// The sealed seed of a derived-mode device.
+pub fn seed_enc(conn: &Connection, device_id: i64) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row("SELECT seed_enc FROM devices WHERE id = ?1", [device_id], |r| r.get(0))
+        .optional()?
+        .flatten())
 }
 
 /// Every hashed key with its device, for fetching reports from Apple.

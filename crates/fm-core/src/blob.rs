@@ -11,11 +11,13 @@
 //!     10    2  key count N (u16 LE)
 //!     12    1  status byte to advertise
 //!     13    1  reserved (0)
-//!     14  28N  public keys
-//! 14+28N    4  CRC-32 of everything before it (u32 LE)
+//!     14  28M  payload: M = N public keys, or M = 1 seed in Derived mode
+//! 14+28M    4  CRC-32 of everything before it (u32 LE)
 //! ```
 //!
-//! Only public keys are in the blob. Private keys never leave the server.
+//! Static and Pool blobs carry only public keys; private keys never leave the
+//! server. A Derived blob carries the 28-byte seed (a secret, see `derive`) and
+//! N is the size of the window of derived keys the beacon cycles through.
 
 use crate::crc32::crc32;
 use crate::schedule::KeyMode;
@@ -29,9 +31,17 @@ const CRC_LEN: usize = 4;
 /// past its flash partition. 2048 keys at 15 min is ~3 weeks before wrapping.
 pub const MAX_KEYS: u16 = 2048;
 
-/// Total blob size for `key_count` keys.
-pub const fn blob_len(key_count: u16) -> usize {
-    HEADER_LEN + key_count as usize * KEY_LEN + CRC_LEN
+/// Number of 28-byte payload entries for a blob with `key_count` in its header.
+const fn payload_entries(mode: KeyMode, key_count: u16) -> usize {
+    match mode {
+        KeyMode::Derived => 1,
+        _ => key_count as usize,
+    }
+}
+
+/// Total blob size for `key_count` keys (for Derived: a window of that many keys).
+pub const fn blob_len(mode: KeyMode, key_count: u16) -> usize {
+    HEADER_LEN + payload_entries(mode, key_count) * KEY_LEN + CRC_LEN
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,7 +82,8 @@ pub struct Blob<'a> {
     pub mode: KeyMode,
     pub interval_s: u32,
     pub status: u8,
-    keys: &'a [u8],
+    count: u16,
+    payload: &'a [u8],
 }
 
 impl<'a> Blob<'a> {
@@ -97,7 +108,7 @@ impl<'a> Blob<'a> {
         if count > MAX_KEYS {
             return Err(BlobError::TooManyKeys(count));
         }
-        let expected = blob_len(count);
+        let expected = blob_len(mode, count);
         if bytes.len() != expected {
             return Err(BlobError::LengthMismatch { expected, actual: bytes.len() });
         }
@@ -105,7 +116,7 @@ impl<'a> Blob<'a> {
         if crc32(body) != u32::from_le_bytes([crc[0], crc[1], crc[2], crc[3]]) {
             return Err(BlobError::BadCrc);
         }
-        Ok(Blob { mode, interval_s, status: bytes[12], keys: &body[HEADER_LEN..] })
+        Ok(Blob { mode, interval_s, status: bytes[12], count, payload: &body[HEADER_LEN..] })
     }
 
     /// Validate only the header and return the full blob length, so firmware
@@ -117,41 +128,68 @@ impl<'a> Blob<'a> {
         if header[0..4] != MAGIC {
             return Err(BlobError::BadMagic);
         }
+        let mode = KeyMode::from_u8(header[5]).ok_or(BlobError::UnknownKeyMode(header[5]))?;
         let count = u16::from_le_bytes([header[10], header[11]]);
         if count > MAX_KEYS {
             return Err(BlobError::TooManyKeys(count));
         }
-        Ok(blob_len(count))
+        Ok(blob_len(mode, count))
     }
 
+    /// Number of keys the beacon cycles through (for Derived: the window size).
     pub fn key_count(&self) -> u16 {
-        (self.keys.len() / KEY_LEN) as u16
+        self.count
     }
 
-    /// Key `index`, wrapping around so a stale index is always valid.
-    pub fn key(&self, index: u16) -> AdvKey {
-        let i = (index % self.key_count()) as usize * KEY_LEN;
+    /// Stored public key `index`, wrapping around so a stale index is always
+    /// valid. `None` in Derived mode, where the keys are computed from the seed
+    /// (see `adv_key`); the payload there is secret and is never returned.
+    pub fn key(&self, index: u16) -> Option<AdvKey> {
+        if self.mode == KeyMode::Derived {
+            return None;
+        }
+        let i = (index % self.count) as usize * KEY_LEN;
         let mut k = [0u8; KEY_LEN];
-        k.copy_from_slice(&self.keys[i..i + KEY_LEN]);
-        k
+        k.copy_from_slice(&self.payload[i..i + KEY_LEN]);
+        Some(k)
     }
 
+    /// The seed of a Derived blob.
+    pub fn seed(&self) -> Option<AdvKey> {
+        (self.mode == KeyMode::Derived).then(|| {
+            let mut s = [0u8; KEY_LEN];
+            s.copy_from_slice(&self.payload[..KEY_LEN]);
+            s
+        })
+    }
+
+    /// Advertisement key at `index` in any mode (derives it in Derived mode).
+    #[cfg(feature = "crypto")]
+    pub fn adv_key(&self, index: u16) -> AdvKey {
+        match self.seed() {
+            Some(seed) => crate::derive::derive_keypair(&seed, (index % self.count) as u32).adv_key(),
+            None => self.key(index).expect("non-derived blob"),
+        }
+    }
+
+    /// Stored keys. Empty in Derived mode.
     pub fn keys(&self) -> impl Iterator<Item = AdvKey> + '_ {
-        (0..self.key_count()).map(move |i| self.key(i))
+        let n = if self.mode == KeyMode::Derived { 0 } else { self.count };
+        (0..n).filter_map(move |i| self.key(i))
     }
 }
 
-/// Build a blob. Used by the server and CLI; firmware only parses.
+/// Build a Static or Pool blob. Used by the server and CLI; firmware only parses.
 #[cfg(feature = "alloc")]
 pub fn build(mode: KeyMode, interval_s: u32, status: u8, keys: &[AdvKey]) -> Result<alloc::vec::Vec<u8>, BlobError> {
-    if keys.is_empty() {
+    if keys.is_empty() || mode == KeyMode::Derived {
         return Err(BlobError::NoKeys);
     }
     let count = u16::try_from(keys.len()).unwrap_or(u16::MAX);
     if count > MAX_KEYS {
         return Err(BlobError::TooManyKeys(count));
     }
-    let mut out = alloc::vec::Vec::with_capacity(blob_len(count));
+    let mut out = alloc::vec::Vec::with_capacity(blob_len(mode, count));
     out.extend_from_slice(&MAGIC);
     out.push(VERSION);
     out.push(mode as u8);
@@ -162,6 +200,29 @@ pub fn build(mode: KeyMode, interval_s: u32, status: u8, keys: &[AdvKey]) -> Res
     for k in keys {
         out.extend_from_slice(k);
     }
+    let crc = crc32(&out);
+    out.extend_from_slice(&crc.to_le_bytes());
+    Ok(out)
+}
+
+/// Build a Derived blob: a seed plus the window of `window` keys to cycle through.
+#[cfg(feature = "alloc")]
+pub fn build_derived(interval_s: u32, status: u8, seed: &AdvKey, window: u16) -> Result<alloc::vec::Vec<u8>, BlobError> {
+    if window == 0 {
+        return Err(BlobError::NoKeys);
+    }
+    if window > MAX_KEYS {
+        return Err(BlobError::TooManyKeys(window));
+    }
+    let mut out = alloc::vec::Vec::with_capacity(blob_len(KeyMode::Derived, window));
+    out.extend_from_slice(&MAGIC);
+    out.push(VERSION);
+    out.push(KeyMode::Derived as u8);
+    out.extend_from_slice(&interval_s.to_le_bytes());
+    out.extend_from_slice(&window.to_le_bytes());
+    out.push(status);
+    out.push(0);
+    out.extend_from_slice(seed);
     let crc = crc32(&out);
     out.extend_from_slice(&crc.to_le_bytes());
     Ok(out)
@@ -179,7 +240,7 @@ mod tests {
     fn round_trip() {
         let ks = keys(3);
         let bytes = build(KeyMode::Pool, 900, 0x40, &ks).unwrap();
-        assert_eq!(bytes.len(), blob_len(3));
+        assert_eq!(bytes.len(), blob_len(KeyMode::Pool, 3));
         assert_eq!(Blob::peek_len(&bytes[..HEADER_LEN]).unwrap(), bytes.len());
         let blob = Blob::parse(&bytes).unwrap();
         assert_eq!(blob.mode, KeyMode::Pool);
@@ -187,7 +248,27 @@ mod tests {
         assert_eq!(blob.status, 0x40);
         assert_eq!(blob.key_count(), 3);
         assert_eq!(blob.keys().collect::<alloc::vec::Vec<_>>(), ks);
-        assert_eq!(blob.key(4), ks[1], "index wraps");
+        assert_eq!(blob.key(4), Some(ks[1]), "index wraps");
+    }
+
+    #[cfg(feature = "crypto")]
+    #[test]
+    fn derived_round_trip() {
+        let seed = [9u8; KEY_LEN];
+        let bytes = build_derived(900, 0x40, &seed, 100).unwrap();
+        assert_eq!(bytes.len(), blob_len(KeyMode::Derived, 100));
+        assert_eq!(bytes.len(), HEADER_LEN + KEY_LEN + 4, "one seed, not 100 keys");
+        assert_eq!(Blob::peek_len(&bytes[..HEADER_LEN]).unwrap(), bytes.len());
+        let blob = Blob::parse(&bytes).unwrap();
+        assert_eq!(blob.mode, KeyMode::Derived);
+        assert_eq!(blob.key_count(), 100);
+        assert_eq!(blob.seed(), Some(seed));
+        assert_eq!(blob.key(0), None, "seed must never come back as a key");
+        assert_eq!(blob.keys().count(), 0);
+        let expect = crate::derive::derive_keypair(&seed, 5).adv_key();
+        assert_eq!(blob.adv_key(5), expect);
+        assert_eq!(blob.adv_key(105), expect, "index wraps at the window");
+        assert!(build(KeyMode::Derived, 900, 0, &keys(1)).is_err());
     }
 
     #[test]

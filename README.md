@@ -39,9 +39,9 @@ outside the data volume.
 
 | Piece | State |
 |---|---|
-| Protocol core, CLI, HCI | Done, tested (including vectors from an independent implementation) |
+| Protocol core, CLI, HCI | Done, tested (including vectors from an independent implementation). Static, pool and derived key modes |
 | Server + dashboard + Docker | Done, tested; reports come in through `POST /api/reports` |
-| ESP32-C3 beacon | Builds; not yet tried on hardware |
+| ESP32-C3 beacon | Builds; not yet tried on hardware. Static and pool only (no on-device derivation) |
 | Fetching reports from Apple | Not built yet. Needs an anisette provider you supply (see `crates/fm-anisette/README.md`) |
 | Linux, Windows, nRF52 beacons | Not built yet |
 

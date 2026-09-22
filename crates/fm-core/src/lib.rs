@@ -4,7 +4,7 @@
 //! - [`advert`]: turn a 28-byte public key into a BLE address + advertisement and back.
 //! - [`schedule`]: which key a beacon should broadcast right now.
 //! - [`blob`]: the provisioning format every beacon reads its keys from.
-//! - [`keys`] / [`report`] (feature `crypto`): key generation and report decryption.
+//! - [`keys`] / [`derive`] / [`report`] (feature `crypto`): key generation, seed-derived keys and report decryption.
 //!
 //! See `docs/protocol.md` for the wire formats.
 
@@ -19,6 +19,8 @@ pub mod blob;
 mod crc32;
 pub mod schedule;
 
+#[cfg(feature = "crypto")]
+pub mod derive;
 #[cfg(feature = "crypto")]
 pub mod keys;
 #[cfg(feature = "crypto")]

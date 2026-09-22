@@ -15,9 +15,9 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use clap::{Parser, Subcommand};
 use fm_core::schedule::{KeyMode, DEFAULT_INTERVAL_S};
-use fm_core::{advert, blob, keys::KeyPair, report};
+use fm_core::{advert, blob, derive::derive_keypair, keys::KeyPair, report};
 use keyfile::{hex, parse_mode, unhex, KeyEntry, KeyFile};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 
 #[derive(Parser)]
 #[command(name = "fm", version, about = "findmy: keys, provisioning blobs and reports")]
@@ -102,20 +102,27 @@ fn keygen(name: String, mode: &str, count: u16, interval: u32, status: u8, out: 
     if count == 0 || count > blob::MAX_KEYS {
         bail!("--count must be 1..={}", blob::MAX_KEYS);
     }
-    if key_mode == KeyMode::Pool && interval == 0 {
-        bail!("--interval must be at least 1 second");
-    }
     if !force && std::path::Path::new(out).exists() {
         bail!("{out} already exists (use --force to overwrite; the old keys would be lost)");
     }
 
-    let keys = (0..count).map(|_| KeyEntry::from_pair(&KeyPair::generate(&mut OsRng))).collect();
-    let kf = KeyFile { name, mode: mode.to_string(), interval_s: interval, status, keys };
+    if key_mode != KeyMode::Static && interval == 0 {
+        bail!("--interval must be at least 1 second");
+    }
+    let (seed, keys): (Option<String>, Vec<KeyEntry>) = if key_mode == KeyMode::Derived {
+        let mut seed = [0u8; fm_core::KEY_LEN];
+        OsRng.fill_bytes(&mut seed);
+        let keys = (0..count as u32).map(|i| KeyEntry::from_pair(&derive_keypair(&seed, i))).collect();
+        (Some(hex(&seed)), keys)
+    } else {
+        (None, (0..count).map(|_| KeyEntry::from_pair(&KeyPair::generate(&mut OsRng))).collect())
+    };
+    let kf = KeyFile { name, mode: mode.to_string(), interval_s: interval, status, seed, keys };
     kf.save(out)?;
 
     let cycle_h = count as f64 * interval as f64 / 3600.0;
     println!("wrote {out}: {count} key(s), mode {mode}");
-    if key_mode == KeyMode::Pool {
+    if key_mode != KeyMode::Static {
         println!("rotates every {interval}s, full cycle {cycle_h:.1} h");
     }
     println!("this file contains PRIVATE keys; keep it safe and out of git");
@@ -125,7 +132,10 @@ fn keygen(name: String, mode: &str, count: u16, interval: u32, status: u8, out: 
 fn write_blob(keyfile: &str, out: &str) -> Result<()> {
     let kf = KeyFile::load(keyfile)?;
     let advs = kf.keys.iter().map(KeyEntry::adv_key).collect::<Result<Vec<_>>>()?;
-    let bytes = blob::build(kf.key_mode()?, kf.interval_s, kf.status, &advs)?;
+    let bytes = match kf.key_mode()? {
+        KeyMode::Derived => blob::build_derived(kf.interval_s, kf.status, &kf.seed_bytes()?, advs.len() as u16)?,
+        mode => blob::build(mode, kf.interval_s, kf.status, &advs)?,
+    };
     std::fs::write(out, &bytes).with_context(|| format!("writing {out}"))?;
     println!("wrote {out}: {} bytes, {} key(s)", bytes.len(), advs.len());
     Ok(())

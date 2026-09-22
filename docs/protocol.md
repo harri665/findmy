@@ -91,7 +91,7 @@ Chosen per device:
 |---|---|---|
 | Static | 0 | One key forever. |
 | Pool | 1 | N keys. Index = `(start + uptime / interval) mod N`. |
-| Derived | 2 | Reserved for on-device AirTag-style derivation. |
+| Derived | 2 | Keys derived from one seed (below). Same rotation as Pool, wrapping at the window size N. Needs P-224 on the beacon, so not ESP32. |
 
 Beacons only need a monotonic uptime counter. The server asks Apple for
 reports on every key a device owns, so it never needs to know which key was
@@ -99,9 +99,18 @@ active at which moment.
 
 Code: `fm_core::schedule`.
 
+### Derived keys
+
+A 28-byte seed yields key `i` as the private scalar
+`SHA256("findmy/derive/v1" || seed || i as u32 BE || ctr as u8)[..28]`, with
+`ctr` starting at 0 and incremented if the value is not a valid P-224 scalar
+(about 2^-96). The server stores every key of the window, so reports for any
+of them can be decrypted. The seed is a secret: anyone holding it can compute
+every private key. Code: `fm_core::derive`; vectors in section 6.
+
 ## 5. Provisioning blob v1 (findmy)
 
-How every beacon receives its keys. Public keys only.
+How every beacon receives its keys. Public keys only, except Derived mode, which carries the seed.
 
 ```text
 offset size  field
@@ -112,9 +121,12 @@ offset size  field
     10    2  key count N (u16 LE, 1..=2048)
     12    1  status byte to advertise
     13    1  reserved = 0
-    14  28N  advertisement keys
-14+28N    4  CRC-32/IEEE of all preceding bytes (u32 LE)
+    14  28M  payload: M = N advertisement keys; Derived mode: M = 1, the seed
+14+28M    4  CRC-32/IEEE of all preceding bytes (u32 LE)
 ```
+
+In Derived mode N is the window of derived keys the beacon cycles through, not
+the number of payload entries.
 
 Firmware can read the 14-byte header first and call `Blob::peek_len` to learn
 how much more to read.
