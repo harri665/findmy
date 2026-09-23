@@ -36,7 +36,7 @@ export default function Settings() {
     <div className="page max-w-2xl space-y-4">
       <h1 className="text-2xl font-bold">Settings</h1>
       <form onSubmit={save} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="font-semibold">Fetching reports from Apple</h2>
+        <h2 className="font-semibold">External report fetcher</h2>
         <label className="block">
           <span className="text-sm text-gray-700">Anisette provider URL</span>
           <input
@@ -62,8 +62,8 @@ export default function Settings() {
           />
         </label>
         <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
-          Apple account sign-in and automatic fetching aren't built yet. Until then, reports can be pushed to the server with{' '}
-          <code>POST /api/reports</code>.
+          These values are only stored for an external fetcher to read; the server doesn't fetch reports itself. A fetcher gets
+          the IDs to request from <code>GET /api/keys/hashed</code> and pushes what it finds to <code>POST /api/reports</code>.
         </p>
         {error && <p className="text-sm text-red-600">{error}</p>}
         {status && <p className="text-sm text-green-700">{status}</p>}

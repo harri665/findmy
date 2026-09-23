@@ -398,8 +398,8 @@ async fn device_locations(
 
 // --- Reports ----------------------------------------------------------------
 
-/// Raw reports as fetched from Apple, from fm-server's fetch worker or any
-/// other fetcher. The server decrypts and stores them.
+/// Raw reports as fetched from Apple by an external fetcher (the server does
+/// not fetch itself). The server decrypts and stores them.
 #[derive(Deserialize)]
 struct IngestBody {
     reports: Vec<IngestReport>,
@@ -468,10 +468,10 @@ async fn hashed_keys(State(state): State<Shared>) -> ApiResult<Json<Vec<String>>
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 pub struct Settings {
-    /// Where Apple-facing requests get their anisette headers. Chosen and run
-    /// by whoever deploys findmy; see crates/fm-anisette/README.md.
+    /// Stored for an external fetcher to read; the server itself does not use it.
+    /// Chosen and run by whoever deploys findmy; see crates/fm-anisette/README.md.
     pub anisette_url: Option<String>,
-    /// Minutes between report fetches.
+    /// Minutes between report fetches, for the external fetcher.
     pub fetch_interval_min: Option<u32>,
 }
 
