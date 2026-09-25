@@ -426,6 +426,16 @@ name = "fm-anisette"
 version = "0.1.0"
 
 [[package]]
+name = "fm-beacon-linux"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "fm-core",
+ "fm-hci",
+ "libc",
+]
+
+[[package]]
 name = "fm-cli"
 version = "0.1.0"
 dependencies = [

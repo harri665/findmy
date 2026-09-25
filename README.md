@@ -18,6 +18,7 @@ keys, so only you can decrypt the reports.
 | `crates/fm-anisette` | Placeholder, not implemented. See its README. |
 | `client/` | Dashboard, based on [harrisonwebdefault](https://github.com/harri665/harrisonwebdefault). |
 | `beacons/esp32` | ESP32-C3 beacon firmware. |
+| `beacons/linux` | Linux beacon daemon (raw HCI socket). |
 | `docker-compose.yml` | Dashboard (nginx) + server. |
 
 ## Run it
@@ -43,6 +44,7 @@ outside the data volume.
 | Server + dashboard + Docker | Done, tested; reports come in through `POST /api/reports` |
 | ESP32-C3 beacon | Builds; not yet tried on hardware. Static and pool only (no on-device derivation) |
 | Fetching reports from Apple | Not part of this repo. An external fetcher reads `GET /api/keys/hashed` and pushes to `POST /api/reports` (see `crates/fm-anisette/README.md`) |
-| Linux, Windows, nRF52 beacons | Not built yet |
+| Linux beacon | Builds and type-checks for Linux; sequence unit-tested; not yet tried on hardware (`beacons/linux`) |
+| Windows, nRF52 beacons | Not built yet |
 
 Only track things you own.

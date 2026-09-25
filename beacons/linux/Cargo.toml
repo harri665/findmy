@@ -1,0 +1,16 @@
+[package]
+name = "fm-beacon-linux"
+version = "0.1.0"
+description = "findmy beacon daemon for Linux: advertises keys from a provisioning blob over a raw HCI socket"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fm-core = { workspace = true, features = ["std", "crypto"] }
+fm-hci = { path = "../../crates/fm-hci" }
+clap = { version = "4", features = ["derive"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
