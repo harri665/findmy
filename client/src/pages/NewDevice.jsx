@@ -90,7 +90,13 @@ function CreateForm({ onCreated }) {
   const [form, setForm] = useState({ name: '', icon: ICONS[0], platform: 'esp32', key_mode: 'pool', count: 96, interval_min: 15 })
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }))
+  const set = (patch) =>
+    setForm((f) => {
+      const next = { ...f, ...patch }
+      // ESP32 tags can't derive keys on-device.
+      if (next.platform === 'esp32' && next.key_mode === 'derived') next.key_mode = 'pool'
+      return next
+    })
 
   async function submit(e) {
     e.preventDefault()
@@ -115,6 +121,7 @@ function CreateForm({ onCreated }) {
   }
 
   const cycle = form.count * form.interval_min * 60
+  const noDerive = form.platform === 'esp32'
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
@@ -131,6 +138,21 @@ function CreateForm({ onCreated }) {
             </span>
           </span>
         </label>
+        <label className={`flex items-start gap-2 ${noDerive ? 'opacity-50' : ''}`}>
+          <input
+            type="radio"
+            checked={form.key_mode === 'derived'}
+            disabled={noDerive}
+            onChange={() => set({ key_mode: 'derived' })}
+            className="mt-1"
+          />
+          <span>
+            <span className="font-medium">Derived from one seed</span>
+            <span className="block text-sm text-gray-600">
+              Like a rotating pool, but the beacon stores a single secret seed. {noDerive && 'Not available on ESP32 tags.'}
+            </span>
+          </span>
+        </label>
         <label className="flex items-start gap-2">
           <input type="radio" checked={form.key_mode === 'static'} onChange={() => set({ key_mode: 'static' })} className="mt-1" />
           <span>
@@ -140,10 +162,10 @@ function CreateForm({ onCreated }) {
         </label>
       </fieldset>
 
-      {form.key_mode === 'pool' && (
+      {form.key_mode !== 'static' && (
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="text-sm text-gray-700">Keys in pool</span>
+            <span className="text-sm text-gray-700">{form.key_mode === 'derived' ? 'Keys in window' : 'Keys in pool'}</span>
             <input type="number" min={2} max={2048} className={input} value={form.count} onChange={(e) => set({ count: e.target.value })} />
           </label>
           <label className="block">
@@ -214,7 +236,7 @@ function ImportForm({ onCreated }) {
       {keyFile && (
         <p className="text-sm text-gray-700">
           {keyFile.keys.length} key{keyFile.keys.length === 1 ? '' : 's'}, {keyFile.mode} mode
-          {keyFile.mode === 'pool' && `, rotating every ${duration(keyFile.interval_s)}`}
+          {keyFile.mode !== 'static' && `, rotating every ${duration(keyFile.interval_s)}`}
         </p>
       )}
       <CommonFields form={form} set={set} />
