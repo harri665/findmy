@@ -36,6 +36,23 @@ The server keeps its database and master key in `/data` (`FM_DATA_DIR`). Set
 `FM_MASTER_KEY` (base64, 32 bytes) to keep the key that encrypts private keys
 outside the data volume.
 
+## Tests
+
+```sh
+cargo test --workspace            # protocol core, CLI, HCI, server, Linux beacon logic
+(cd client && npm test)           # dashboard smoke tests
+python tools/vectors/gen_vector.py   # regenerate the independent test vectors
+```
+
+The ESP32 firmware has its own workspace: `cd beacons/esp32 && cargo check`.
+
+## Portainer
+
+Create a stack from this repo's `docker-compose.yml` (repository or web editor)
+and set `FM_ADMIN_PASSWORD` (required) and optionally `FM_MASTER_KEY` and
+`FINDMY_PORT` in the stack's environment. Keep the `/data` volume: it holds the
+database and, unless `FM_MASTER_KEY` is set, the key that encrypts private keys.
+
 ## Status
 
 | Piece | State |
