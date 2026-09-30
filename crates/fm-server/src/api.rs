@@ -35,6 +35,9 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub sealer: Sealer,
     pub admin_password_hash: [u8; 32],
+    pub apple: fm_apple::Client,
+    pub fetch_lock: tokio::sync::Mutex<()>,
+    pub fetch_notify: tokio::sync::Notify,
 }
 
 pub type Shared = Arc<AppState>;
@@ -48,6 +51,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/devices/{id}/locations", get(device_locations))
         .route("/api/devices/{id}/agent-token", post(rotate_agent_token))
         .route("/api/reports", post(ingest_reports))
+        .route("/api/reports/fetch", post(fetch_reports))
+        .route("/api/apple", get(apple_status).put(import_apple).delete(disconnect_apple))
         .route("/api/keys/hashed", get(hashed_keys))
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/logout", post(logout))
@@ -92,7 +97,7 @@ impl From<anyhow::Error> for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
-fn lock(state: &AppState) -> std::sync::MutexGuard<'_, Connection> {
+pub(crate) fn lock(state: &AppState) -> std::sync::MutexGuard<'_, Connection> {
     // A panic while holding the lock leaves SQLite consistent (transactions
     // roll back), so a poisoned mutex is safe to keep using.
     state.db.lock().unwrap_or_else(|p| p.into_inner())
@@ -398,22 +403,13 @@ async fn device_locations(
 
 // --- Reports ----------------------------------------------------------------
 
-/// Raw reports as fetched from Apple by an external fetcher (the server does
-/// not fetch itself). The server decrypts and stores them.
+/// Raw reports from Apple or an external fetcher, decrypted and stored here.
 #[derive(Deserialize)]
 struct IngestBody {
-    reports: Vec<IngestReport>,
+    reports: Vec<fm_apple::Report>,
 }
 
-#[derive(Deserialize)]
-struct IngestReport {
-    /// Base64 SHA256(adv key) the report was fetched under.
-    hashed: String,
-    /// Base64 report payload (88 or 89 bytes).
-    payload: String,
-}
-
-#[derive(Serialize, Default, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct IngestResult {
     pub stored: u32,
     pub duplicate: u32,
@@ -422,10 +418,15 @@ pub struct IngestResult {
 }
 
 async fn ingest_reports(State(state): State<Shared>, Json(body): Json<IngestBody>) -> ApiResult<Json<IngestResult>> {
+    Ok(Json(store_reports(&state, &body.reports)?))
+}
+
+pub(crate) fn store_reports(state: &AppState, reports: &[fm_apple::Report]) -> anyhow::Result<IngestResult> {
     let mut result = IngestResult::default();
-    let conn = lock(&state);
-    for r in &body.reports {
-        let Some((device_id, enc)) = db::key_by_hashed(&conn, &r.hashed)? else {
+    let mut conn = lock(state);
+    let tx = conn.transaction()?;
+    for r in reports {
+        let Some((device_id, enc)) = db::key_by_hashed(&tx, &r.hashed)? else {
             result.unknown_key += 1;
             continue;
         };
@@ -450,13 +451,52 @@ async fn ingest_reports(State(state): State<Shared>, Json(body): Json<IngestBody
             confidence: loc.confidence,
             status: loc.status,
         };
-        if db::insert_report(&conn, device_id, &r.hashed, &loc)? {
+        if db::insert_report(&tx, device_id, &r.hashed, &loc)? {
             result.stored += 1;
         } else {
             result.duplicate += 1;
         }
     }
-    Ok(Json(result))
+    tx.commit()?;
+    Ok(result)
+}
+
+async fn fetch_reports(State(state): State<Shared>) -> ApiResult<Json<IngestResult>> {
+    crate::fetch::run(&state).await.map(Json).map_err(|e| match e {
+        crate::fetch::FetchError::Busy => ApiError(StatusCode::CONFLICT, "a report fetch is already running".into()),
+        crate::fetch::FetchError::Unconfigured => ApiError::bad_request("configure an anisette provider and import an Apple session first"),
+        crate::fetch::FetchError::Failed(error) => ApiError(StatusCode::BAD_GATEWAY, error),
+    })
+}
+
+async fn apple_status(State(state): State<Shared>) -> ApiResult<Json<crate::fetch::Status>> {
+    Ok(Json(crate::fetch::status(&state)?))
+}
+
+async fn import_apple(State(state): State<Shared>, Json(body): Json<serde_json::Value>) -> ApiResult<Json<crate::fetch::Status>> {
+    let credentials = fm_apple::Credentials::from_export(&body).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let _guard = state.fetch_lock.try_lock().map_err(|_| ApiError(StatusCode::CONFLICT, "wait for the current report fetch to finish".into()))?;
+    let sealed = state.sealer.seal(&serde_json::to_vec(&credentials).map_err(anyhow::Error::from)?);
+    {
+        let mut conn = lock(&state);
+        let tx = conn.transaction().map_err(anyhow::Error::from)?;
+        db::set_setting(&tx, "apple_session", Some(&B64.encode(sealed)))?;
+        db::set_setting(&tx, "fetch_error", None)?;
+        db::set_setting(&tx, "last_fetch", None)?;
+        db::set_setting(&tx, "last_success", None)?;
+        db::set_setting(&tx, "last_fetch_result", None)?;
+        tx.commit().map_err(anyhow::Error::from)?;
+    }
+    state.fetch_notify.notify_one();
+    drop(_guard);
+    Ok(Json(crate::fetch::status(&state)?))
+}
+
+async fn disconnect_apple(State(state): State<Shared>) -> ApiResult<StatusCode> {
+    let _guard = state.fetch_lock.try_lock().map_err(|_| ApiError(StatusCode::CONFLICT, "wait for the current report fetch to finish".into()))?;
+    db::set_setting(&lock(&state), "apple_session", None)?;
+    state.fetch_notify.notify_one();
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Every hashed key the server knows, for a fetcher to ask Apple about.
@@ -468,10 +508,9 @@ async fn hashed_keys(State(state): State<Shared>) -> ApiResult<Json<Vec<String>>
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 pub struct Settings {
-    /// Stored for an external fetcher to read; the server itself does not use it.
-    /// Chosen and run by whoever deploys findmy; see crates/fm-anisette/README.md.
+    /// Separately operated provider of Apple request headers.
     pub anisette_url: Option<String>,
-    /// Minutes between report fetches, for the external fetcher.
+    /// Minutes between automatic report fetches (default 15).
     pub fetch_interval_min: Option<u32>,
 }
 
@@ -486,18 +525,19 @@ async fn get_settings(State(state): State<Shared>) -> ApiResult<Json<Settings>> 
 async fn put_settings(State(state): State<Shared>, Json(body): Json<Settings>) -> ApiResult<Json<Settings>> {
     let url = body.anisette_url.as_deref().map(str::trim).filter(|u| !u.is_empty());
     if let Some(u) = url {
-        if !(u.starts_with("http://") || u.starts_with("https://")) {
-            return Err(ApiError::bad_request("anisette_url must start with http:// or https://"));
-        }
+        fm_anisette::validate_url(u).map_err(|e| ApiError::bad_request(e.to_string()))?;
     }
     if let Some(m) = body.fetch_interval_min {
         if !(5..=1440).contains(&m) {
             return Err(ApiError::bad_request("fetch_interval_min must be 5..=1440"));
         }
     }
-    let conn = lock(&state);
-    db::set_setting(&conn, "anisette_url", url)?;
-    db::set_setting(&conn, "fetch_interval_min", body.fetch_interval_min.map(|m| m.to_string()).as_deref())?;
+    let mut conn = lock(&state);
+    let tx = conn.transaction().map_err(anyhow::Error::from)?;
+    db::set_setting(&tx, "anisette_url", url)?;
+    db::set_setting(&tx, "fetch_interval_min", body.fetch_interval_min.map(|m| m.to_string()).as_deref())?;
+    tx.commit().map_err(anyhow::Error::from)?;
+    state.fetch_notify.notify_one();
     Ok(Json(Settings { anisette_url: url.map(String::from), fetch_interval_min: body.fetch_interval_min }))
 }
 
@@ -553,7 +593,7 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let secs = db::now();
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);

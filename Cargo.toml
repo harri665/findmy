@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["beacons/linux", "crates/fm-anisette", "crates/fm-cli", "crates/fm-core", "crates/fm-hci", "crates/fm-server"]
+members = ["beacons/linux", "crates/fm-anisette", "crates/fm-apple", "crates/fm-cli", "crates/fm-core", "crates/fm-hci", "crates/fm-server"]
 # Firmware targets RISC-V and is built on its own.
 exclude = ["beacons/esp32"]
 
@@ -18,3 +18,4 @@ p224 = { version = "0.13", default-features = false }
 aes-gcm = { version = "0.10", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 rand_core = { version = "0.6", default-features = false }
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }

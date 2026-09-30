@@ -104,7 +104,6 @@ mod tests {
         assert_eq!(radio.current(), Some(0));
         radio.advertise(1, &b).unwrap();
         assert_eq!(radio.current(), Some(1));
-        drop(radio);
 
         assert_eq!(
             ops(&m),
@@ -141,7 +140,6 @@ mod tests {
         let mut radio = Radio::new(&mut m);
         radio.reset();
         radio.advertise(0, &a).unwrap();
-        drop(radio);
         assert_eq!(ops(&m)[0], LE_SET_EXT_ADV_PARAMS);
     }
 }

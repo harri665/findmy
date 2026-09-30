@@ -19,12 +19,19 @@ use crate::{crypto, db};
 
 const PASSWORD: &str = "correct horse battery";
 
-fn app() -> Router {
-    api::router(Arc::new(AppState {
+fn test_state() -> Arc<AppState> {
+    Arc::new(AppState {
         db: Mutex::new(db::open_in_memory().unwrap()),
         sealer: crypto::Sealer::new(&[42; 32]),
         admin_password_hash: crypto::sha256(PASSWORD.as_bytes()),
-    }))
+        apple: fm_apple::Client::new().unwrap(),
+        fetch_lock: tokio::sync::Mutex::new(()),
+        fetch_notify: tokio::sync::Notify::new(),
+    })
+}
+
+fn app() -> Router {
+    api::router(test_state())
 }
 
 async fn call(app: &Router, method: Method, uri: &str, auth: Option<&str>, body: Option<Value>) -> (StatusCode, Vec<u8>) {
@@ -197,6 +204,9 @@ async fn private_keys_are_encrypted_at_rest() {
         db: Mutex::new(conn),
         sealer: crypto::Sealer::new(&[42; 32]),
         admin_password_hash: crypto::sha256(PASSWORD.as_bytes()),
+        apple: fm_apple::Client::new().unwrap(),
+        fetch_lock: tokio::sync::Mutex::new(()),
+        fetch_notify: tokio::sync::Notify::new(),
     });
     let app = api::router(state.clone());
     let auth = login(&app).await;
@@ -270,4 +280,122 @@ async fn derived_device_blob_carries_seed_not_keys() {
     };
     let (s, _) = call(&app, Method::POST, "/api/devices/import", Some(&auth), Some(import(&[1u8; 28]))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+fn apple_session() -> Value {
+    json!({"dsid":"12345", "searchPartyToken":"private-report-token", "uid":"user-id", "device_id":"device-id"})
+}
+
+#[tokio::test]
+async fn apple_session_is_encrypted_and_never_returned() {
+    let state = test_state();
+    let app = api::router(state.clone());
+    for uri in ["/api/apple", "/api/reports/fetch"] {
+        assert_eq!(call(&app, Method::POST, uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    }
+    let auth = login(&app).await;
+    assert_eq!(call(&app, Method::POST, "/api/reports/fetch", Some(&auth), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(call(&app, Method::PUT, "/api/apple", Some(&auth), Some(json!({"dsid":"x"}))).await.0, StatusCode::BAD_REQUEST);
+    let (s, b) = call(&app, Method::PUT, "/api/apple", Some(&auth), Some(apple_session())).await;
+    assert_eq!(s, StatusCode::OK);
+    let status = json_of(&b);
+    assert_eq!(status["connected"], true);
+    assert_eq!(status["configured"], false);
+    assert_eq!(status["running"], false);
+    assert!(!String::from_utf8_lossy(&b).contains("private-report-token"));
+    {
+        let conn = state.db.lock().unwrap();
+        let stored = db::get_setting(&conn, "apple_session").unwrap().unwrap();
+        assert!(!stored.contains("private-report-token"));
+        let clear = state.sealer.open(&B64.decode(stored).unwrap()).unwrap();
+        assert_eq!(json_of(&clear), apple_session());
+    }
+    let (s, _) = call(&app, Method::DELETE, "/api/apple", Some(&auth), None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert!(db::get_setting(&state.db.lock().unwrap(), "apple_session").unwrap().is_none());
+}
+
+#[tokio::test]
+async fn manual_fetch_records_status_and_rejects_concurrent_changes() {
+    let state = test_state();
+    let app = api::router(state.clone());
+    let auth = login(&app).await;
+    call(&app, Method::PUT, "/api/settings", Some(&auth), Some(json!({"anisette_url":"http://unused-provider:6969", "fetch_interval_min":5}))).await;
+    call(&app, Method::PUT, "/api/apple", Some(&auth), Some(apple_session())).await;
+    // No devices: there are no keys to request, and no external calls occur.
+    let (s, b) = call(&app, Method::POST, "/api/reports/fetch", Some(&auth), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(json_of(&b)["stored"], 0);
+    let status = crate::fetch::status(&state).unwrap();
+    assert!(status.last_success.is_some());
+    assert_eq!(status.next_fetch.unwrap() - status.last_fetch.unwrap(), 300);
+    let guard = state.fetch_lock.lock().await;
+    for (method, uri, body) in [(Method::POST, "/api/reports/fetch", None), (Method::PUT, "/api/apple", Some(apple_session())), (Method::DELETE, "/api/apple", None)] {
+        assert_eq!(call(&app, method, uri, Some(&auth), body).await.0, StatusCode::CONFLICT);
+    }
+    drop(guard);
+    call(&app, Method::PUT, "/api/apple", Some(&auth), Some(apple_session())).await;
+    let status = crate::fetch::status(&state).unwrap();
+    assert!(status.last_success.is_none());
+    assert!(status.result.is_none());
+}
+
+#[tokio::test]
+async fn provider_failure_is_visible_and_does_not_change_history() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let provider = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, Router::new().route("/", axum::routing::get(|| async { axum::Json(json!({})) }))).await.unwrap();
+    });
+    let state = test_state();
+    let app = api::router(state.clone());
+    let auth = login(&app).await;
+    call(&app, Method::POST, "/api/devices", Some(&auth), Some(json!({"name":"Tag", "platform":"linux", "key_mode":"static"}))).await;
+    call(&app, Method::PUT, "/api/settings", Some(&auth), Some(json!({"anisette_url":provider}))).await;
+    call(&app, Method::PUT, "/api/apple", Some(&auth), Some(apple_session())).await;
+    let (s, b) = call(&app, Method::POST, "/api/reports/fetch", Some(&auth), None).await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY);
+    assert!(json_of(&b)["error"].as_str().unwrap().contains("missing X-Apple-I-MD"));
+    let status = crate::fetch::status(&state).unwrap();
+    assert!(status.error.unwrap().contains("missing X-Apple-I-MD"));
+    assert!(status.last_success.is_none());
+    assert!(!status.running);
+    let count: i64 = state.db.lock().unwrap().query_row("SELECT COUNT(*) FROM reports", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 0);
+    task.abort();
+}
+
+#[tokio::test]
+async fn scheduler_wakes_after_session_import_and_respects_interval() {
+    let state = test_state();
+    let app = api::router(state.clone());
+    let auth = login(&app).await;
+    let worker = tokio::spawn(crate::fetch::worker(state.clone()));
+    call(&app, Method::PUT, "/api/settings", Some(&auth), Some(json!({"anisette_url":"http://unused:6969"}))).await;
+    call(&app, Method::PUT, "/api/apple", Some(&auth), Some(apple_session())).await;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while crate::fetch::status(&state).unwrap().last_success.is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let first = crate::fetch::status(&state).unwrap().last_fetch;
+    state.fetch_notify.notify_one();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    assert_eq!(crate::fetch::status(&state).unwrap().last_fetch, first);
+    worker.abort();
+}
+
+#[tokio::test]
+async fn unreadable_session_records_failure_and_delays_retry() {
+    let state = test_state();
+    {
+        let conn = state.db.lock().unwrap();
+        db::set_setting(&conn, "anisette_url", Some("http://unused:6969")).unwrap();
+        db::set_setting(&conn, "apple_session", Some(&B64.encode(b"corrupt session"))).unwrap();
+    }
+    assert!(matches!(crate::fetch::run(&state).await, Err(crate::fetch::FetchError::Failed(_))));
+    let status = crate::fetch::status(&state).unwrap();
+    assert!(status.error.unwrap().contains("check the master key"));
+    assert!(status.last_success.is_none());
+    assert!(status.next_fetch.unwrap() > db::now());
 }

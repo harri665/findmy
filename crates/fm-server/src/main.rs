@@ -5,6 +5,7 @@ mod api;
 mod config;
 mod crypto;
 mod db;
+mod fetch;
 
 use std::sync::{Arc, Mutex};
 
@@ -28,7 +29,10 @@ fn healthcheck() -> bool {
     use std::io::{Read, Write};
     let bind = std::env::var("FM_BIND").unwrap_or_else(|_| "0.0.0.0:3001".into());
     let port = bind.rsplit(':').next().unwrap_or("3001");
-    let Ok(mut s) = std::net::TcpStream::connect(format!("127.0.0.1:{port}")) else {
+    let Ok(address) = format!("127.0.0.1:{port}").parse() else {
+        return false;
+    };
+    let Ok(mut s) = std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_secs(5)) else {
         return false;
     };
     let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
@@ -49,12 +53,17 @@ async fn serve() -> Result<()> {
         db: Mutex::new(conn),
         sealer: crypto::Sealer::new(&config.master_key),
         admin_password_hash: crypto::sha256(config.admin_password.as_bytes()),
+        apple: fm_apple::Client::new()?,
+        fetch_lock: tokio::sync::Mutex::new(()),
+        fetch_notify: tokio::sync::Notify::new(),
     });
 
+    let worker = tokio::spawn(fetch::worker(state.clone()));
     let app = api::router(state).layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(&config.bind).await.with_context(|| format!("binding {}", config.bind))?;
     tracing::info!("fm-server listening on {}", config.bind);
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
+    worker.abort();
     Ok(())
 }
 
