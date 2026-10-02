@@ -28,7 +28,7 @@ export default function Setup({ device, agentToken }) {
 
   return (
     <div className="space-y-3 text-sm">
-      {(device.platform === 'esp32' || device.platform === 'other') && (
+      {device.platform === 'esp32' && (
         <>
           <p>Flash the findmy firmware once, then write this device's keys to the board's key partition:</p>
           {blobButton}
@@ -44,25 +44,20 @@ export default function Setup({ device, agentToken }) {
       )}
       {(device.platform === 'linux' || device.platform === 'windows') && (
         <>
-          <p>
-            The {device.platform === 'linux' ? 'Linux daemon' : 'Windows agent'} downloads its keys from this server using the
-            device's agent token.
-          </p>
+          <p>{device.platform === 'linux' ? 'Download the keys and run the Linux beacon daemon:' : 'Windows beacon support is not available yet. You can download the key blob for a supported beacon.'}</p>
           {agentToken ? (
             <>
               <p className="font-medium text-amber-700">Copy the agent token now. It won't be shown again.</p>
-              <Code>{`FM_SERVER=${origin}\nFM_AGENT_TOKEN=${agentToken}`}</Code>
+              <Code>{`curl -H 'Authorization: Device ${agentToken}' '${origin}/api/agent/blob' -o '${file}'`}</Code>
             </>
           ) : (
             <p className="text-gray-600">Lost the token? Generate a new one on the device page (the old one stops working).</p>
           )}
-          <p className="text-gray-600">
-            The {device.platform === 'linux' ? 'Linux daemon' : 'Windows agent'} isn't built yet; you can also download the blob
-            directly.
-          </p>
+          {device.platform === 'linux' && <><Code>{`sudo fm-beacon-linux --blob '${file}'`}</Code><p className="text-gray-600">See beacons/linux/README.md for adapter setup and installation.</p></>}
           {blobButton}
         </>
       )}
+      {device.platform === 'other' && <><p>Download the provisioning blob for your compatible beacon. See docs/protocol.md for its format.</p>{blobButton}</>}
       {error && <p className="text-red-600">{error}</p>}
     </div>
   )

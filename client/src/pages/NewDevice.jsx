@@ -18,7 +18,7 @@ export default function NewDevice() {
         </h1>
         <p className="text-gray-600">
           {created.device.key_count} key{created.device.key_count === 1 ? '' : 's'} generated. Private keys stay on this server,
-          encrypted. The beacon only ever gets public keys.
+          encrypted. {created.device.key_mode === 'derived' ? 'The beacon receives a secret seed; keep its blob private.' : 'The beacon receives public keys.'}
         </p>
         <Setup device={created.device} agentToken={created.agent_token} />
         <Link to={`/devices/${created.device.id}`} className="inline-block text-sm font-medium hover:underline">

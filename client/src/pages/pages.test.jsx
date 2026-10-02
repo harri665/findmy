@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 vi.mock('../api.js', () => ({
-  api: { devices: vi.fn(), login: vi.fn(), createDevice: vi.fn() },
+  api: { devices: vi.fn(), login: vi.fn(), createDevice: vi.fn(), settings: vi.fn(), saveSettings: vi.fn(), appleStatus: vi.fn(), importAppleSession: vi.fn(), disconnectApple: vi.fn(), fetchReports: vi.fn() },
   setToken: vi.fn(),
   ApiError: class extends Error {},
 }))
@@ -18,6 +18,7 @@ import Devices from './Devices.jsx'
 import Login from './Login.jsx'
 import MapPage from './MapPage.jsx'
 import NewDevice from './NewDevice.jsx'
+import Settings from './Settings.jsx'
 
 const device = (over = {}) => ({
   id: 1,
@@ -99,5 +100,55 @@ describe('NewDevice', () => {
     expect(derived).toBeDisabled() // ESP32 is the default platform
     await userEvent.selectOptions(screen.getByRole('combobox'), 'linux')
     expect(derived).toBeEnabled()
+  })
+})
+
+describe('Settings', () => {
+  const connected = { connected: true, configured: true, running: false, last_success: null, next_fetch: 1790000000, error: null, result: null }
+
+  beforeEach(() => {
+    api.settings.mockResolvedValue({ anisette_url: 'http://provider:6969', fetch_interval_min: 15 })
+    api.appleStatus.mockResolvedValue(connected)
+  })
+
+  it('saves fetch settings and fetches reports manually', async () => {
+    api.saveSettings.mockResolvedValue({})
+    api.fetchReports.mockResolvedValue({ stored: 2, duplicate: 3, invalid: 0 })
+    render(<Settings />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Save' }))
+    expect(api.saveSettings).toHaveBeenCalledWith({ anisette_url: 'http://provider:6969', fetch_interval_min: 15 })
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch now' }))
+    expect(await screen.findByText('Fetched reports: 2 new, 3 already stored, 0 invalid')).toBeInTheDocument()
+  })
+
+  it('disables manual fetching until the session and provider are configured', async () => {
+    api.appleStatus.mockResolvedValue({ ...connected, connected: false, configured: false, next_fetch: null })
+    render(<Settings />)
+    expect(await screen.findByRole('button', { name: 'Fetch now' })).toBeDisabled()
+    expect(screen.getByText('No Apple session saved')).toBeInTheDocument()
+  })
+
+  it('imports a session file and shows retrieval errors', async () => {
+    const session = { dsid: '12345', searchPartyToken: 'token', uid: 'u', device_id: 'd' }
+    api.importAppleSession.mockResolvedValue(connected)
+    api.fetchReports.mockRejectedValue(new Error('Apple session expired'))
+    render(<Settings />)
+    const upload = await screen.findByLabelText('Import session JSON')
+    const file = new File([JSON.stringify(session)], 'session.json', { type: 'application/json' })
+    // jsdom's File does not implement the modern text() method.
+    file.text = async () => JSON.stringify(session)
+    await userEvent.upload(upload, file)
+    expect(await screen.findByText('Apple session imported')).toBeInTheDocument()
+    expect(api.importAppleSession).toHaveBeenCalledWith(session)
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch now' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Apple session expired')
+  })
+
+  it('removes the saved session', async () => {
+    api.disconnectApple.mockResolvedValue(null)
+    render(<Settings />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove session' }))
+    expect(await screen.findByText('Apple session removed')).toBeInTheDocument()
+    expect(api.disconnectApple).toHaveBeenCalled()
   })
 })

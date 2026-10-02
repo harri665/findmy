@@ -1,16 +1,18 @@
 // Thin wrapper over the fm-server API (/api, proxied to :3001).
 
 const TOKEN_KEY = 'findmy.token'
+let memoryToken = null
 
 export function getToken() {
   try {
-    return localStorage.getItem(TOKEN_KEY)
+    return localStorage.getItem(TOKEN_KEY) ?? memoryToken
   } catch {
-    return null
+    return memoryToken
   }
 }
 
 export function setToken(token) {
+  memoryToken = token || null
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token)
     else localStorage.removeItem(TOKEN_KEY)
@@ -76,6 +78,10 @@ export const api = {
 
   settings: () => request('GET', '/settings'),
   saveSettings: (body) => request('PUT', '/settings', { body }),
+  appleStatus: () => request('GET', '/apple'),
+  importAppleSession: (body) => request('PUT', '/apple', { body }),
+  disconnectApple: () => request('DELETE', '/apple'),
+  fetchReports: () => request('POST', '/reports/fetch'),
 
   async downloadBlob(id, filename) {
     const res = await request('GET', `/devices/${id}/blob`, { raw: true })
