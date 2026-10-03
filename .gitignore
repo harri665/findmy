@@ -13,3 +13,6 @@ lib*.so
 # Device key files from `fm keygen` hold private keys.
 *.keys.json
 *.fmkt
+*.apple-session.json
+.venv/
+__pycache__/

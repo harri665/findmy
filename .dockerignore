@@ -16,3 +16,6 @@ data
 client/node_modules
 *.keys.json
 *.fmkt
+*.apple-session.json
+.venv
+__pycache__
