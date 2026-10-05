@@ -3,6 +3,7 @@ FROM rust:1-bookworm AS builder
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY beacons/linux ./beacons/linux
 RUN cargo build --release --locked -p fm-server
 
 FROM debian:bookworm-slim

@@ -1,12 +1,12 @@
 node_modules
+dist
+coverage
 npm-debug.log
+.env
 .git
 .gitignore
 *.md
-.env
 .DS_Store
-dist
 build
-coverage
 .vscode
 .idea
