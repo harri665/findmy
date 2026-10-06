@@ -152,6 +152,6 @@ reduced mod n. They're checked in `crates/fm-core/tests/vectors.rs`.
 Expected report contents: timestamp `1790000000` (Unix), confidence 2,
 latitude `40.0149856`, longitude `-105.2705456`, accuracy 35 m, status `0x40`.
 
-Still to do: add a vector from a **real Apple report** once the fetch path
-(`fm-apple`) works, to confirm the byte layout against live data rather than
-only against our understanding of it.
+Live verification still needed: add an anonymized vector from a real Apple
+report to confirm the layout against live data. The fetch path (`fm-apple`)
+is implemented and tested with local HTTP fixtures.

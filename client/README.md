@@ -11,3 +11,7 @@ uses Leaflet with OpenStreetMap tiles.
 
 Pages: map (`/`), devices (`/devices`), add device (`/devices/new`), device
 detail with history (`/devices/:id`), settings (`/settings`).
+
+Settings configures scheduled retrieval, imports an encrypted Apple session,
+shows fetch results and errors, and supports fetching immediately. See
+[`docs/apple-setup.md`](../docs/apple-setup.md) for account setup.
