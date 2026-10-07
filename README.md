@@ -1,67 +1,101 @@
 # findmy
 
-Put your own devices on Apple's Find My network over Bluetooth LE, and see
-where they are on a self-hosted map.
+findmy lets you build your own Bluetooth LE beacons and track them on Apple's
+Find My network, with a self-hosted dashboard for the map and location history.
 
-A beacon broadcasts a public key the way an AirTag does. Nearby iPhones encrypt
-their location to that key and upload it to Apple. findmy holds the private
-keys, so only you can decrypt the reports.
+A beacon broadcasts a public key, much like an AirTag. Nearby iPhones use that
+key to encrypt their location and send the report to Apple. Your findmy server
+fetches those reports and decrypts them with the beacon's private keys.
 
-## Layout
+## What's in the repo
 
-| Path | What |
+| Path | Purpose |
 |---|---|
-| `crates/fm-core` | Protocol core (`no_std`): keys, advertisements, key rotation, provisioning blobs, report decryption. See `docs/protocol.md`. |
-| `crates/fm-hci` | Bluetooth HCI commands shared by the beacons (`no_std`). |
-| `crates/fm-cli` | `fm`: generate keys, build blobs, decrypt reports. |
-| `crates/fm-server` | API on :3001. Devices, encrypted keys, report ingest, location history. |
-| `crates/fm-anisette` | Placeholder, not implemented. See its README. |
+| `crates/fm-core` | Keys, advertisements, key rotation, provisioning blobs, and report decryption. Supports `no_std`; see [the protocol notes](docs/protocol.md). |
+| `crates/fm-hci` | Shared Bluetooth HCI commands for the beacons, also `no_std`. |
+| `crates/fm-cli` | The `fm` command-line tool for generating keys, building blobs, and decrypting reports. |
+| `crates/fm-server` | The API on port 3001, including device management, encrypted key storage, and location history. |
+| `crates/fm-anisette` | HTTP client for an external anisette header provider. |
+| `crates/fm-apple` | Fetches encrypted reports from Apple using an authenticated session. |
 | `client/` | Dashboard, based on [harrisonwebdefault](https://github.com/harri665/harrisonwebdefault). |
 | `beacons/esp32` | ESP32-C3 beacon firmware. |
-| `beacons/linux` | Linux beacon daemon (raw HCI socket). |
-| `docker-compose.yml` | Dashboard (nginx) + server. |
+| `beacons/linux` | Linux beacon daemon using a raw HCI socket. |
+| `docker-compose.yml` | Runs the dashboard behind nginx alongside the server. |
 
-## Run it
+## Getting started
+
+For local development, you'll need Rust and Node.js with npm. From the repo
+root, run:
 
 ```sh
-# Development: server on :3001 and Vite on :5173
 npm run install:all
 FM_ADMIN_PASSWORD=change-me npm run dev
+```
 
-# Docker (e.g. a Portainer stack): dashboard on :8080
+This starts the API on port 3001 and the dashboard at
+<http://localhost:5173>. Choose your own password in place of `change-me`.
+
+To run it with Docker instead:
+
+```sh
 FM_ADMIN_PASSWORD=change-me docker compose up -d --build
 ```
 
-The server keeps its database and master key in `/data` (`FM_DATA_DIR`). Set
-`FM_MASTER_KEY` (base64, 32 bytes) to keep the key that encrypts private keys
-outside the data volume.
+The Docker dashboard is available at <http://localhost:8080>. Set `FINDMY_PORT`
+if you want to use a different port.
 
-## Tests
+On Windows PowerShell, set the password with `$env:FM_ADMIN_PASSWORD = 'change-me'`
+before running `npm run dev` or `docker compose up -d --build`.
+
+Sign in to the dashboard with that password, add a device, and provision its
+beacon using the [ESP32](beacons/esp32/README.md) or
+[Linux](beacons/linux/README.md) instructions. Follow the
+[Apple setup guide](docs/apple-setup.md) to connect your account and enable
+automatic report fetching. The map refreshes every minute.
+
+The server stores its database and master key in `FM_DATA_DIR`, which is
+`/data` in Docker. You can supply a base64-encoded, 32-byte key through
+`FM_MASTER_KEY` if you want to manage the encryption key separately from the
+data volume. Keep that key backed up along with the database.
+
+## Running the checks
+
+From the repo root:
 
 ```sh
-cargo test --workspace            # protocol core, CLI, HCI, server, Linux beacon logic
-(cd client && npm test)           # dashboard smoke tests
-python tools/vectors/gen_vector.py   # regenerate the independent test vectors
+cargo test --workspace
+npm test --prefix client
+python tools/apple/test_login.py
 ```
 
-The ESP32 firmware has its own workspace: `cd beacons/esp32 && cargo check`.
+These cover the Rust workspace, dashboard, and offline Apple login export.
+To regenerate the independent protocol test vectors, run
+`python tools/vectors/gen_vector.py`.
+
+The ESP32 firmware has its own workspace. Run `cargo check` from
+`beacons/esp32` to check it separately.
 
 ## Portainer
 
 Create a stack from this repo's `docker-compose.yml` (repository or web editor)
-and set `FM_ADMIN_PASSWORD` (required) and optionally `FM_MASTER_KEY` and
-`FINDMY_PORT` in the stack's environment. Keep the `/data` volume: it holds the
-database and, unless `FM_MASTER_KEY` is set, the key that encrypts private keys.
+and set `FM_ADMIN_PASSWORD` in the stack's environment. You can also set
+`FM_MASTER_KEY` and `FINDMY_PORT` there. Keep the `/data` volume when updating
+the stack: it holds the database and, unless you supply `FM_MASTER_KEY`, the
+encryption key.
 
-## Status
+## Current state
 
-| Piece | State |
-|---|---|
-| Protocol core, CLI, HCI | Done, tested (including vectors from an independent implementation). Static, pool and derived key modes |
-| Server + dashboard + Docker | Done, tested; reports come in through `POST /api/reports` |
-| ESP32-C3 beacon | Builds; not yet tried on hardware. Static and pool only (no on-device derivation) |
-| Fetching reports from Apple | Not part of this repo. An external fetcher reads `GET /api/keys/hashed` and pushes to `POST /api/reports` (see `crates/fm-anisette/README.md`) |
-| Linux beacon | Builds and type-checks for Linux; sequence unit-tested; not yet tried on hardware (`beacons/linux`) |
-| Windows, nRF52 beacons | Not built yet |
+The protocol core, CLI, and HCI code have tests, including vectors from an
+independent implementation. The core supports static, pool, and derived keys.
+The server and dashboard support device setup, location history, encrypted
+session storage, and both scheduled and manual report fetching.
+
+Apple report fetching is implemented and tested against local fixtures. Live
+retrieval.
+
+The ESP32-C3 firmware supports
+static and pool keys, without on-device key derivation. The Linux beacon also
+builds and has unit tests for its advertising sequence, but still needs a
+hardware test. Windows and nRF52 beacons haven't been built yet.
 
 Only track things you own.
