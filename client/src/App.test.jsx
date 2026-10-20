@@ -14,8 +14,11 @@ it('shows the coming soon page by default', () => {
     </MemoryRouter>,
   )
 
-  expect(screen.getByText('Coming Soon')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Self-hosted Find My beacon tracking' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/harri665/findmy',
+  )
   expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
   expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
 })
@@ -31,5 +34,5 @@ it('shows the dashboard login when coming soon mode is disabled', () => {
   )
 
   expect(screen.getByLabelText('Password')).toBeInTheDocument()
-  expect(screen.queryByText('Coming Soon')).not.toBeInTheDocument()
+  expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
 })

@@ -1,24 +1,19 @@
+const REPO_URL = 'https://github.com/harri665/findmy'
+
 export default function ComingSoon() {
   return (
-    <div className="flex h-full items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-4 rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-        <div className="inline-flex items-center gap-2 text-2xl font-bold text-gray-900">
-          <span aria-hidden="true">📍</span>
-          <span>findmy</span>
-        </div>
-        <div className="pt-1">
-          <span className="inline-block rounded-full bg-gray-900 px-3 py-1 text-xs font-medium tracking-wide text-white uppercase">
-            Coming Soon
-          </span>
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900">
-          Self-hosted Find My beacon tracking
-        </h1>
-        <p className="text-sm leading-relaxed text-gray-600">
-          Build your own Bluetooth LE beacons and track them on Apple&apos;s Find My
-          network with a self-hosted map and location history dashboard.
-        </p>
-      </div>
+    <div className="flex min-h-full flex-col items-center justify-center bg-white px-4 py-16 text-center">
+      <p className="text-lg font-semibold text-gray-900">📍 findmy</p>
+      <h1 className="mt-6 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">Coming soon</h1>
+      <p className="mt-4 max-w-md text-base leading-relaxed text-gray-600">
+        Self-hosted tracking for your own Bluetooth beacons on Apple&apos;s Find My network.
+      </p>
+      <a
+        href={REPO_URL}
+        className="mt-8 rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900"
+      >
+        View on GitHub
+      </a>
     </div>
   )
 }
