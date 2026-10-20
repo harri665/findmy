@@ -1,20 +1,5 @@
 const REPO_URL = 'https://github.com/harri665/findmy'
 
-const STEPS = [
-  {
-    title: 'Build a beacon',
-    body: 'Flash an ESP32-C3 or run the Linux daemon to broadcast a Find My key.',
-  },
-  {
-    title: 'Nearby iPhones report it',
-    body: 'Apple devices that pass by send its location to Apple, encrypted.',
-  },
-  {
-    title: 'See it on your map',
-    body: 'Your server fetches and decrypts the reports. Only you can read them.',
-  },
-]
-
 export default function ComingSoon() {
   return (
     <div className="flex min-h-full flex-col items-center justify-center bg-white px-4 py-16 text-center">
@@ -33,26 +18,12 @@ export default function ComingSoon() {
       <p className="mt-4 max-w-md text-base leading-relaxed text-gray-600">
         Self-hosted tracking for your own Bluetooth beacons on Apple&apos;s Find My network.
       </p>
-
-      <ol className="mt-12 grid w-full max-w-3xl gap-4 text-left sm:grid-cols-3">
-        {STEPS.map((step, i) => (
-          <li key={step.title} className="rounded-xl border border-gray-200 p-5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-900 text-xs font-semibold text-white">
-              {i + 1}
-            </span>
-            <h2 className="mt-3 text-sm font-semibold text-gray-900">{step.title}</h2>
-            <p className="mt-1 text-sm leading-relaxed text-gray-600">{step.body}</p>
-          </li>
-        ))}
-      </ol>
-
       <a
         href={REPO_URL}
-        className="mt-10 rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900"
+        className="mt-8 rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900"
       >
         View on GitHub
       </a>
-      <p className="mt-6 text-xs text-gray-500">Only track things you own.</p>
     </div>
   )
 }
