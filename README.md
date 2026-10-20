@@ -32,8 +32,9 @@ npm run install:all
 FM_ADMIN_PASSWORD=change-me npm run dev
 ```
 
-This starts the API on port 3001 and the dashboard at
+This starts the API on port 3001 and the coming soon page at
 <http://localhost:5173>. Choose your own password in place of `change-me`.
+Set `VITE_COMING_SOON=false` before starting the app to use the dashboard.
 
 To run it with Docker instead:
 
@@ -44,7 +45,7 @@ FM_ADMIN_PASSWORD=change-me docker compose up -d --build
 The Docker site is available at <http://localhost:8080> and shows a coming soon
 page by default. Set `FINDMY_PORT` to use a different port. To deploy the full
 dashboard, set `VITE_COMING_SOON=false` and rebuild with `docker compose up -d
---build`. Local development continues to show the dashboard.
+--build`.
 
 On Windows PowerShell, set the password with `$env:FM_ADMIN_PASSWORD = 'change-me'`
 before running `npm run dev` or `docker compose up -d --build`.

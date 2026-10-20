@@ -74,7 +74,7 @@ function Dashboard() {
 }
 
 function App() {
-  return import.meta.env.VITE_COMING_SOON === 'true' ? <ComingSoon /> : <Dashboard />
+  return import.meta.env.VITE_COMING_SOON === 'false' ? <Dashboard /> : <ComingSoon />
 }
 
 export default App

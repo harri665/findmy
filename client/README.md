@@ -7,10 +7,9 @@ uses Leaflet with OpenStreetMap tiles.
 - `npm run dev`: Vite on :5173, proxying `/api` to fm-server on :3001
   (run both together with `npm run dev` from the repo root).
 - `npm run build`: static build in `dist/`. The Dockerfile serves it with nginx
-  and proxies `/api/` to the `server` container. Docker builds set
-  `VITE_COMING_SOON=true` by default to show the coming soon page; use
-  `VITE_COMING_SOON=false` at build time to show the dashboard. Local builds
-  and development show the dashboard by default.
+  and proxies `/api/` to the `server` container. All builds and development show
+  the coming soon page by default. Set `VITE_COMING_SOON=false` to show the
+  dashboard; Docker requires a rebuild after changing this setting.
 
 Pages: map (`/`), devices (`/devices`), add device (`/devices/new`), device
 detail with history (`/devices/:id`), settings (`/settings`).

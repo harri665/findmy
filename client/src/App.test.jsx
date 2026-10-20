@@ -5,11 +5,11 @@ import App from './App.jsx'
 
 afterEach(() => vi.unstubAllEnvs())
 
-it('shows the coming soon page instead of the dashboard in Docker mode', () => {
-  vi.stubEnv('VITE_COMING_SOON', 'true')
+it('shows the coming soon page by default', () => {
+  vi.stubEnv('VITE_COMING_SOON', undefined)
 
   render(
-    <MemoryRouter initialEntries={['/devices']}>
+    <MemoryRouter>
       <App />
     </MemoryRouter>,
   )
