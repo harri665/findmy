@@ -36,19 +36,25 @@ This starts the API on port 3001 and the coming soon page at
 <http://localhost:5173>. Choose your own password in place of `change-me`.
 Set `VITE_COMING_SOON=false` before starting the app to use the dashboard.
 
-To run it with Docker instead:
+To show the coming soon page with Docker:
 
 ```sh
-FM_ADMIN_PASSWORD=change-me docker compose up -d --build
+docker compose up -d --build
 ```
 
-The Docker site is available at <http://localhost:8080> and shows a coming soon
-page by default. Set `FINDMY_PORT` to use a different port. To deploy the full
-dashboard, set `VITE_COMING_SOON=false` and rebuild with `docker compose up -d
---build`.
+The site is available at <http://localhost:8080>. Set `FINDMY_PORT` to use a
+different port. The coming soon deployment starts only the web container.
+
+To deploy the full dashboard and API:
+
+```sh
+FM_ADMIN_PASSWORD=change-me VITE_COMING_SOON=false docker compose --profile dashboard up -d --build
+```
 
 On Windows PowerShell, set the password with `$env:FM_ADMIN_PASSWORD = 'change-me'`
-before running `npm run dev` or `docker compose up -d --build`.
+before running `npm run dev` or the dashboard deployment command. For the
+dashboard deployment, also set `$env:VITE_COMING_SOON = 'false'` and run
+`docker compose --profile dashboard up -d --build`.
 
 With the full dashboard enabled, sign in with that password, add a device, and provision its
 beacon using the [ESP32](beacons/esp32/README.md) or
@@ -81,10 +87,12 @@ The ESP32 firmware has its own workspace. Run `cargo check` from
 ## Portainer
 
 Create a stack from this repo's `docker-compose.yml` (repository or web editor)
-and set `FM_ADMIN_PASSWORD` in the stack's environment. You can also set
-`FM_MASTER_KEY` and `FINDMY_PORT` there. Keep the `/data` volume when updating
-the stack: it holds the database and, unless you supply `FM_MASTER_KEY`, the
-encryption key.
+to show the coming soon page. For the full dashboard, set
+`COMPOSE_PROFILES=dashboard`, `VITE_COMING_SOON=false`, and a password of at
+least eight characters in `FM_ADMIN_PASSWORD` in the stack's environment.
+You can also set `FM_MASTER_KEY` and `FINDMY_PORT` there. Keep the `/data`
+volume when updating the dashboard stack: it holds the database and, unless
+you supply `FM_MASTER_KEY`, the encryption key.
 
 ## Current state
 
