@@ -8,6 +8,7 @@ import Devices from './pages/Devices.jsx'
 import NewDevice from './pages/NewDevice.jsx'
 import DeviceDetail from './pages/DeviceDetail.jsx'
 import Settings from './pages/Settings.jsx'
+import ComingSoon from './pages/ComingSoon.jsx'
 
 function NavItem({ to, children }) {
   return (
@@ -23,7 +24,7 @@ function NavItem({ to, children }) {
   )
 }
 
-function App() {
+function Dashboard() {
   const [authed, setAuthed] = useState(() => Boolean(getToken()))
   const navigate = useNavigate()
 
@@ -70,6 +71,10 @@ function App() {
       </main>
     </div>
   )
+}
+
+function App() {
+  return import.meta.env.VITE_COMING_SOON === 'true' ? <ComingSoon /> : <Dashboard />
 }
 
 export default App

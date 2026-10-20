@@ -41,13 +41,15 @@ To run it with Docker instead:
 FM_ADMIN_PASSWORD=change-me docker compose up -d --build
 ```
 
-The Docker dashboard is available at <http://localhost:8080>. Set `FINDMY_PORT`
-if you want to use a different port.
+The Docker site is available at <http://localhost:8080> and shows a coming soon
+page by default. Set `FINDMY_PORT` to use a different port. To deploy the full
+dashboard, set `VITE_COMING_SOON=false` and rebuild with `docker compose up -d
+--build`. Local development continues to show the dashboard.
 
 On Windows PowerShell, set the password with `$env:FM_ADMIN_PASSWORD = 'change-me'`
 before running `npm run dev` or `docker compose up -d --build`.
 
-Sign in to the dashboard with that password, add a device, and provision its
+With the full dashboard enabled, sign in with that password, add a device, and provision its
 beacon using the [ESP32](beacons/esp32/README.md) or
 [Linux](beacons/linux/README.md) instructions. Follow the
 [Apple setup guide](docs/apple-setup.md) to connect your account and enable

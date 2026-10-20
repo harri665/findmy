@@ -13,6 +13,8 @@ RUN npm ci
 COPY . .
 
 # Build the app
+ARG VITE_COMING_SOON=true
+ENV VITE_COMING_SOON=$VITE_COMING_SOON
 RUN npm run build
 
 # Production stage
