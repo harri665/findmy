@@ -11,8 +11,7 @@ export default function ComingSoon() {
         </span>
       </div>
 
-      <p className="mt-6 text-lg font-semibold text-gray-900">findmy</p>
-      <h1 className="mt-2 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">Coming soon</h1>
+      <h1 className="mt-6 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">Coming soon</h1>
     </div>
   )
 }
