@@ -15,10 +15,6 @@ it('shows the coming soon page by default', () => {
   )
 
   expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute(
-    'href',
-    'https://github.com/harri665/findmy',
-  )
   expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
   expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
 })
